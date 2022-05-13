@@ -1,0 +1,245 @@
+diff --git "a/D:\\PyCharm\\PythonProject\\main2.py" "b/D:\\PyCharm\\PythonProject\\main3.py"
+index 255571b..5c5322f 100644
+--- "a/D:\\PyCharm\\PythonProject\\main2.py"
++++ "b/D:\\PyCharm\\PythonProject\\main3.py"
+@@ -4,8 +4,6 @@ import random
+ import shutil
+ import time
+ import warnings
+-import glob
+-import csv
+ from enum import Enum
+ 
+ import torch
+@@ -21,15 +19,14 @@ import torch.utils.data.distributed
+ import torchvision.transforms as transforms
+ import torchvision.datasets as datasets
+ import torchvision.models as models
+-from torch.utils.tensorboard import SummaryWriter
+ 
+ model_names = sorted(name for name in models.__dict__
+                      if name.islower() and not name.startswith("__")
+                      and callable(models.__dict__[name]))
+ 
+ parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+-parser.add_argument('data', metavar='DIR', default="tiny-imagenet-200",
+-                    help='path to dataset (default: tiny-imagenet-200)')
++parser.add_argument('data', metavar='DIR', default='imagenet',
++                    help='path to dataset (default: imagenet)')
+ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
+                     choices=model_names,
+                     help='model architecture: ' +
+@@ -37,17 +34,15 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
+                          ' (default: resnet18)')
+ parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
+                     help='number of data loading workers (default: 4)')
+-parser.add_argument('--epochs', default=200, type=int, metavar='N',
++parser.add_argument('--epochs', default=90, type=int, metavar='N',
+                     help='number of total epochs to run')
+ parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
+                     help='manual epoch number (useful on restarts)')
+-parser.add_argument('-b', '--batch-size', default=128, type=int,
++parser.add_argument('-b', '--batch-size', default=256, type=int,
+                     metavar='N',
+-                    help='mini-batch size (default: 128), this is the total '
++                    help='mini-batch size (default: 256), this is the total '
+                          'batch size of all GPUs on the current node when '
+                          'using Data Parallel or Distributed Data Parallel')
+-parser.add_argument('--num_classes', type=int, default=200,
+-                    help='model classification num')
+ parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
+                     metavar='LR', help='initial learning rate', dest='lr')
+ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
+@@ -55,13 +50,13 @@ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
+ parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
+                     metavar='W', help='weight decay (default: 1e-4)',
+                     dest='weight_decay')
+-parser.add_argument('-p', '--print-freq', default=100, type=int,
+-                    metavar='N', help='print frequency (default: 100)')
+-parser.add_argument('--resume', default='checkpoint.pth.tar', type=str, metavar='PATH',
++parser.add_argument('-p', '--print-freq', default=10, type=int,
++                    metavar='N', help='print frequency (default: 10)')
++parser.add_argument('--resume', default='', type=str, metavar='PATH',
+                     help='path to latest checkpoint (default: none)')
+ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
+                     help='evaluate model on validation set')
+-parser.add_argument('--pretrained', type=bool, default=False,
++parser.add_argument('--pretrained', dest='pretrained', action='store_true',
+                     help='use pre-trained model')
+ parser.add_argument('--world-size', default=-1, type=int,
+                     help='number of nodes for distributed training')
+@@ -138,13 +133,10 @@ def main_worker(gpu, ngpus_per_node, args):
+     # create model
+     if args.pretrained:
+         print("=> using pre-trained model '{}'".format(args.arch))
+-        model = models.__dict__[args.arch](pretrained=True, **{"num_classes": args.num_classes})
++        model = models.__dict__[args.arch](pretrained=True)
+     else:
+         print("=> creating model '{}'".format(args.arch))
+-        model = models.__dict__[args.arch](**{
+-            "pretrained": args.pretrained,
+-            "num_classes": args.num_classes,
+-        })
++        model = models.__dict__[args.arch]()
+ 
+     if not torch.cuda.is_available():
+         print('using CPU, this will be slow')
+@@ -218,13 +210,11 @@ def main_worker(gpu, ngpus_per_node, args):
+     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                      std=[0.229, 0.224, 0.225])
+ 
+-    valdir2 = change_val(valdir)
+-
+     train_dataset = datasets.ImageFolder(
+         traindir,
+         transforms.Compose([
+-            #transforms.RandomResizedCrop(224),
+-            #transforms.RandomHorizontalFlip(),
++            transforms.RandomResizedCrop(224),
++            transforms.RandomHorizontalFlip(),
+             transforms.ToTensor(),
+             normalize,
+         ]))
+@@ -238,30 +228,18 @@ def main_worker(gpu, ngpus_per_node, args):
+         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
+         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+ 
+-    val_dataset = datasets.ImageFolder(valdir2, transforms.Compose([
+-            #transforms.Resize(256),
+-            #transforms.CenterCrop(224),
++    val_loader = torch.utils.data.DataLoader(
++        datasets.ImageFolder(valdir, transforms.Compose([
++            transforms.Resize(256),
++            transforms.CenterCrop(224),
+             transforms.ToTensor(),
+             normalize,
+-        ]))
+-
+-    val_loader = torch.utils.data.DataLoader(
+-        val_dataset,
++        ])),
+         batch_size=args.batch_size, shuffle=False,
+         num_workers=args.workers, pin_memory=True)
+ 
+     if args.evaluate:
+-        data = []
+-        for datas in enumerate(val_dataset.imgs):
+-            val_loc_1 = datas[1][0].find('val_')
+-            val_loc_2 = datas[1][0].find('.JPEG')
+-            data.append(datas[1][0][val_loc_1:val_loc_2+5])
+-        for data_num in enumerate(data):
+-            with open('number.csv', 'a', encoding='utf-8', newline='') as f:
+-                write = csv.writer(f)
+-                write.writerow(data_num)
+-
+-        validate(val_loader, model, criterion, 0, args)
++        validate(val_loader, model, criterion, args)
+         return
+ 
+     for epoch in range(args.start_epoch, args.epochs):
+@@ -272,7 +250,7 @@ def main_worker(gpu, ngpus_per_node, args):
+         train(train_loader, model, criterion, optimizer, epoch, args)
+ 
+         # evaluate on validation set
+-        acc1 = validate(val_loader, model, criterion, epoch, args)
++        acc1 = validate(val_loader, model, criterion, args)
+ 
+         scheduler.step()
+ 
+@@ -293,11 +271,11 @@ def main_worker(gpu, ngpus_per_node, args):
+ 
+ 
+ def train(train_loader, model, criterion, optimizer, epoch, args):
+-    batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
+-    data_time = AverageMeter('Data', ':6.3f', Summary.NONE)
+-    losses = AverageMeter('Loss', ':.4e', Summary.AVERAGE)
+-    top1 = AverageMeter('Acc@1', ':6.2f', Summary.AVERAGE)
+-    top5 = AverageMeter('Acc@5', ':6.2f', Summary.AVERAGE)
++    batch_time = AverageMeter('Time', ':6.3f')
++    data_time = AverageMeter('Data', ':6.3f')
++    losses = AverageMeter('Loss', ':.4e')
++    top1 = AverageMeter('Acc@1', ':6.2f')
++    top5 = AverageMeter('Acc@5', ':6.2f')
+     progress = ProgressMeter(
+         len(train_loader),
+         [batch_time, data_time, losses, top1, top5],
+@@ -338,16 +316,10 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
+         if i % args.print_freq == 0:
+             progress.display(i)
+ 
+-    progress.display_summary()
+-
+-    writer.add_scalar('Loss/train', float(losses.summary()[4:]), epoch + 1)
+-    writer.add_scalar('Accuracy1/train', float(top1.summary()[5:]), epoch + 1)
+-    writer.add_scalar('Accuracy5/train', float(top5.summary()[5:]), epoch + 1)
+ 
+-
+-def validate(val_loader, model, criterion, epoch, args):
++def validate(val_loader, model, criterion, args):
+     batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
+-    losses = AverageMeter('Loss', ':.4e', Summary.AVERAGE)
++    losses = AverageMeter('Loss', ':.4e', Summary.NONE)
+     top1 = AverageMeter('Acc@1', ':6.2f', Summary.AVERAGE)
+     top5 = AverageMeter('Acc@5', ':6.2f', Summary.AVERAGE)
+     progress = ProgressMeter(
+@@ -380,17 +352,11 @@ def validate(val_loader, model, criterion, epoch, args):
+             batch_time.update(time.time() - end)
+             end = time.time()
+ 
+-            #progress.display_csv(i)
+-
+             if i % args.print_freq == 0:
+                 progress.display(i)
+ 
+         progress.display_summary()
+ 
+-        writer.add_scalar('Loss/valitude', float(losses.summary()[4:]), epoch + 1)
+-        writer.add_scalar('Accuracy1/valitude', float(top1.summary()[5:]), epoch + 1)
+-        writer.add_scalar('Accuracy5/valitude', float(top5.summary()[5:]), epoch + 1)
+-
+     return top1.avg
+ 
+ 
+@@ -459,13 +425,6 @@ class ProgressMeter(object):
+         entries += [str(meter) for meter in self.meters]
+         print('\t'.join(entries))
+ 
+-    def display_csv(self, batch):
+-        entries = [self.batch_fmtstr.format(batch)]
+-        entries += [str(meter) for meter in self.meters]
+-        with open('evaluate.csv', 'a', encoding='utf-8', newline='') as f:
+-            write = csv.writer(f)
+-            write.writerow(entries)
+-
+     def display_summary(self):
+         entries = [" *"]
+         entries += [meter.summary() for meter in self.meters]
+@@ -494,28 +453,5 @@ def accuracy(output, target, topk=(1,)):
+         return res
+ 
+ 
+-def change_val(valdir):
+-    val_dict = {}
+-    with open(valdir + '\\val_annotations.txt', 'r') as f:
+-        for line in f.readlines():
+-            split_line = line.split('\t')
+-            val_dict[split_line[0]] = split_line[1]
+-
+-    if not os.path.exists(valdir + '\\val'):
+-        os.mkdir(valdir + '\\val')
+-    valdir2 = valdir + '\\val'
+-    paths = glob.glob(valdir + '\\images\\*')
+-    for path in paths:
+-        file = path.split('\\')[-1]
+-        folder = val_dict[file]
+-        if not os.path.exists(valdir2 + '\\' + str(folder)):
+-            os.mkdir(valdir2 + '\\' + str(folder))
+-            os.mkdir(valdir2 + '\\' + str(folder) + '\\images')
+-        shutil.move(path, valdir2 + '\\' + str(folder) + '\\images')
+-
+-    return valdir2
+-
+-
+ if __name__ == '__main__':
+-    writer = SummaryWriter()
+     main()
